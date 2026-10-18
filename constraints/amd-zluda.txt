@@ -1,0 +1,18 @@
+# ---------------------------------------------------------------------------
+# AMD ZLUDA backend (Windows only).
+#
+# ZLUDA is not a Python package: it is a set of DLLs that stand in for the
+# NVIDIA CUDA runtime, so this constraints file installs the *normal CUDA*
+# PyTorch wheels and the ZLUDA layer is dropped in afterwards.
+#
+# Usage (see docs/AMD_SETUP.md for the full procedure):
+#   1. uv pip install -r constraints/amd-zluda.txt
+#   2. copy the ZLUDA DLLs into the site-packages/torch/lib directory
+#   3. uv run python check_hardware.py --device zluda --benchmark
+# ---------------------------------------------------------------------------
+--index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://pypi.org/simple
+
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1

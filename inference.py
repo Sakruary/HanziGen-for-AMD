@@ -11,7 +11,12 @@ from configs import (
 )
 from models import LDM
 from utils.argparse.argparse_utils import update_config_from_args
-from utils.hardware.hardware_utils import print_model_params, select_device
+from utils.hardware.hardware_utils import (
+    load_state_dict,
+    print_backend_banner,
+    print_model_params,
+    select_device,
+)
 from utils.validation.project_validator import ProjectValidationError, ProjectValidator
 
 
@@ -66,7 +71,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        help="Training device (mps, cpu, cuda)",
+        default=None,
+        help=(
+            "Compute device: auto (default), cuda, rocm/hip/amd, zluda, "
+            "directml, mps, cpu (an index such as cuda:0 is also accepted)"
+        ),
     )
 
     return parser.parse_args()
@@ -80,7 +89,7 @@ def inference(
     ldm_model_config: LDMModelConfig,
     font_processing_config: FontProcessingConfig,
     ldm_inference_config: LDMInferenceConfig,
-    device: str,
+    device: str | torch.device,
 ) -> None:
     """
     Perform inference using the LDM model to generate images based on the provided charset.
@@ -92,11 +101,7 @@ def inference(
         device=device,
     )
 
-    state_dict = torch.load(
-        ldm_inference_config.pretrained_ldm_path,
-        map_location=device,
-        weights_only=True,
-    )
+    state_dict = load_state_dict(ldm_inference_config.pretrained_ldm_path)
     ldm.load_state_dict(state_dict)
 
     print_model_params(
@@ -153,6 +158,7 @@ def main() -> None:
             args=args,
         )
         device = select_device(args.device)
+        print_backend_banner(device=device)
 
         inference(
             target_font_path=args.target_font_path,

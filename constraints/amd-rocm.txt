@@ -1,0 +1,96 @@
+# ---------------------------------------------------------------------------
+# AMD ROCm / HIP backend.
+#
+# Verified working on Windows 11 + Radeon RX 9070 XT (gfx1201, RDNA4):
+#   torch       2.10.0+rocm7.13.0a20260511
+#   torchvision 0.25.0+rocm7.13.0a20260511
+#   torchaudio  2.10.0+rocm7.13.0a20260511
+#   rocm-sdk-core / rocm-sdk-libraries-gfx120x-all / rocm  7.13.0a20260511
+#
+# Result: torch.version.hip = 7.13.26176, torch.cuda.is_available() = True,
+#         torch.cuda.get_device_name(0) = "AMD Radeon RX 9070 XT",
+#         gcnArchName = gfx1201, float16 autocast works.
+#
+# See docs/AMD_SETUP.md, "route A", for the step-by-step procedure.
+#
+# ===========================================================================
+# WINDOWS: use AMD's TheRock index, NOT download.pytorch.org
+# ===========================================================================
+# The download.pytorch.org/whl/rocm<version> indexes contain Linux
+# (manylinux) wheels only, so they cannot be used on Windows. AMD publishes
+# Windows gfx120X wheels on TheRock:
+#
+#   https://rocm.nightlies.amd.com/v2/gfx120X-all/
+#
+# ---------------------------------------------------------------------------
+# HOW TO INSTALL (the reliable sequence)
+# ---------------------------------------------------------------------------
+# 1. Non-torch runtime dependencies from PyPI first:
+#
+#      uv pip install --python .venv-amd-rocm/Scripts/python.exe \
+#        filelock fsspec jinja2 networkx sympy numpy pillow \
+#        typing-extensions setuptools --index-url https://pypi.org/simple
+#
+# 2. The ROCm trio, pinned exactly and with --no-deps.
+#
+#    Two traps make a naive `uv pip install torch --index-url <rocm>`
+#    install a *CPU* build instead:
+#      * passing --extra-index-url https://pypi.org/simple lets PyPI's higher
+#        version number win (it installed 2.14.1+cpu, not the ROCm wheel);
+#      * the ROCm wheels carry a local version tag (+rocm...), so a plain
+#        `torch==2.10.0` requirement can be satisfied by a CPU wheel.
+#    Pin the full local version and forbid dependency resolution:
+#
+#      uv pip install --python .venv-amd-rocm/Scripts/python.exe --no-deps \
+#        --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ \
+#        "torch==2.10.0+rocm7.13.0a20260511" \
+#        "torchvision==0.25.0+rocm7.13.0a20260511" \
+#        "torchaudio==2.10.0+rocm7.13.0a20260511"
+#
+# 3. The ROCm SDK packages PyTorch's Windows build loads at import time.
+#    `import torch` fails with "No module named 'rocm_sdk'" without them
+#    (that module ships in the `rocm` meta package, which is an sdist, so a
+#    local build step is required):
+#
+#      uv pip install --python .venv-amd-rocm/Scripts/python.exe --no-deps \
+#        --index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/ \
+#        "rocm-sdk-core==7.13.0a20260511" \
+#        "rocm-sdk-libraries-gfx120x-all==7.13.0a20260511" \
+#        "rocm==7.13.0a20260511"
+#
+# 4. Verify before training:
+#
+#      uv run python check_hardware.py --device rocm --benchmark
+#
+# ---------------------------------------------------------------------------
+# IMPORTANT: give MIOpen a writable cache
+# ---------------------------------------------------------------------------
+# MIOpen compiles convolution kernels on first use and caches them. If its
+# cache is not writable it retries indefinitely: the first convolution appears
+# to hang, then fails with `RuntimeError: miopenStatusUnknownError`. Point it
+# at a writable location whenever the home directory is restricted or on a
+# read-only profile:
+#
+#   set "MIOPEN_USER_DB_PATH=<writable>\miopen\db"
+#   set "MIOPEN_CUSTOM_CACHE_DIR=<writable>\miopen\cache"
+#
+# ---------------------------------------------------------------------------
+--index-url https://rocm.nightlies.amd.com/v2/gfx120X-all/
+
+# Pin the exact ROCm build; update the date stamp to move to a newer nightly.
+torch==2.10.0+rocm7.13.0a20260511
+torchvision==0.25.0+rocm7.13.0a20260511
+torchaudio==2.10.0+rocm7.13.0a20260511
+
+# The ROCm runtime that torch imports at startup.
+rocm-sdk-core==7.13.0a20260511
+rocm-sdk-libraries-gfx120x-all==7.13.0a20260511
+# `rocm` is an sdist and is therefore built locally on install.
+rocm==7.13.0a20260511
+
+# ---------------------------------------------------------------------------
+# Linux note: on native Linux ROCm you can normally use the stock
+# distribution packages and a plain `uv pip install` against
+# https://download.pytorch.org/whl/rocm<version>, which does publish Linux
+# wheels. The Windows-specific steps above only apply to Windows.
+# ---------------------------------------------------------------------------

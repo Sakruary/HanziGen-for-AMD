@@ -5,9 +5,21 @@ from torch.utils.data import DataLoader
 
 from configs.ldm_config import LDMDatasetConfig
 from configs.vqvae_config import VQVAEDatasetConfig
+from utils.hardware.hardware_utils import is_accelerator
 
 from .dataset_utils import split_dataset
 from .image_dataset import PairedGlyphImageDataset
+
+
+def _pin_memory_for(device: torch.device) -> bool:
+    """
+    Decide whether pinned host memory is worth requesting.
+
+    Pinned memory speeds up host-to-device copies, but it is only meaningful on
+    GPU backends that use real asynchronous copies. Requesting it on CPU wastes
+    RAM, so it is enabled for every accelerator and disabled otherwise.
+    """
+    return is_accelerator(device)
 
 
 @dataclass
@@ -40,7 +52,7 @@ class TrainValLoader:
             batch_size=dataset_config.batch_size,
             shuffle=True,
             num_workers=dataset_config.num_workers,
-            pin_memory=True if device.type == "cuda" else False,
+            pin_memory=_pin_memory_for(device),
         )
 
         val_loader = DataLoader(
@@ -48,7 +60,7 @@ class TrainValLoader:
             batch_size=dataset_config.batch_size,
             shuffle=False,
             num_workers=dataset_config.num_workers,
-            pin_memory=True if device.type == "cuda" else False,
+            pin_memory=_pin_memory_for(device),
         )
 
         return cls(train=train_loader, val=val_loader)

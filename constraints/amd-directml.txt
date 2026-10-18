@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------------
+# AMD / Intel DirectML backend (Windows only).
+#
+# torch-directml ships its own, older PyTorch build and is NOT compatible with
+# a separately installed torch. Install it on its own so that it can bring the
+# torch version it was built against.
+#
+# Usage:
+#   uv pip install -r constraints/amd-directml.txt
+#   uv run python check_hardware.py --device directml --benchmark
+#
+# ===========================================================================
+# CAVEATS - read before choosing this path
+# ===========================================================================
+#   * Use Python 3.11 or 3.12. torch-directml was last built in September 2024
+#     and publishes cp310/cp312 era wheels, so Python 3.13 is not supported.
+#   * DirectML has NO torch.amp support. HanziGen detects this and falls back
+#     to float32 automatically, so `--use_amp true` is harmless but pointless.
+#   * Operator coverage is incomplete and CPU fallback is unreliable, so some
+#     models fail outright rather than running slowly. Run check_hardware.py
+#     first and look for FAIL lines.
+#   * Install from the official PyPI only. Mirror indexes (for example the
+#     Tsinghua mirror) do not carry this package and will report
+#     "No matching distribution found".
+# ---------------------------------------------------------------------------
+--index-url https://pypi.org/simple
+
+torch-directml==0.2.5.dev240914
+# torch and torchvision are pulled in by torch-directml itself; do not add an
+# explicit torch requirement here or pip will replace the DirectML build.

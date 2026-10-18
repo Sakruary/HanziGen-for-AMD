@@ -8,7 +8,7 @@ BATCH_SIZE=16
 SAMPLE_STEPS=50
 IMG_WIDTH=512
 IMG_HEIGHT=512
-DEVICE="cuda"
+# Export HANZIGEN_BACKEND to force a compute backend; otherwise run.py auto-detects.
 
 # ==================== DO NOT MODIFY BELOW ====================
 TARGET_FONT_NAME="$(basename "$TARGET_FONT_PATH" | sed -E 's/\.(ttf|otf)$//')"
@@ -22,7 +22,8 @@ else
     echo "Using manual charset path: $CHARSET_PATH"
 fi
 
-uv run python inference.py \
+# run.py picks the compute device; export HANZIGEN_BACKEND to force one.
+uv run python run.py inference.py \
     --target_font_path "$TARGET_FONT_PATH" \
     --reference_fonts_dir "$REFERENCE_FONTS_DIR" \
     --charset_path "$CHARSET_PATH" \
@@ -30,7 +31,6 @@ uv run python inference.py \
     --batch_size "$BATCH_SIZE" \
     --sample_root "$SAMPLE_ROOT" \
     --sample_steps "$SAMPLE_STEPS" \
-    --img_size "$IMG_WIDTH" "$IMG_HEIGHT" \
-    --device "$DEVICE"
+    --img_size "$IMG_WIDTH" "$IMG_HEIGHT"
 
 exit $?

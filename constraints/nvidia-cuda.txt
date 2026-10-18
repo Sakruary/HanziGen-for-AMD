@@ -1,0 +1,15 @@
+# ---------------------------------------------------------------------------
+# NVIDIA CUDA backend (the original configuration of this project).
+#
+# Usage:
+#   uv pip install -r constraints/nvidia-cuda.txt
+#   uv run python check_hardware.py --device cuda --benchmark
+#
+# Change the tag to cu121 / cu124 / cu126 / cu128 to match your driver.
+# ---------------------------------------------------------------------------
+--index-url https://download.pytorch.org/whl/cu118
+--extra-index-url https://pypi.org/simple
+
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1

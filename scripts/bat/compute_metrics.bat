@@ -5,7 +5,7 @@ REM ==================== USER CONFIGURATIONS ====================
 set "TARGET_FONT_PATH=fonts/target_font.ttf"
 set "TIMESTAMP=auto"
 set "EVAL_BATCH_SIZE=2"
-set "DEVICE=cuda"
+REM Set HANZIGEN_BACKEND to force a compute backend; otherwise run.py auto-detects.
 
 REM ==================== DO NOT MODIFY BELOW ====================
 for %%f in ("%TARGET_FONT_PATH%") do (
@@ -35,10 +35,10 @@ if "!TIMESTAMP!" == "auto" (
 set "GENERATED_IMG_DIR=%SAMPLE_ROOT%ldm_training_!TIMESTAMP!/eval/gen/"
 set "GROUND_TRUTH_IMG_DIR=%SAMPLE_ROOT%ldm_training_!TIMESTAMP!/eval/gt/"
 
-uv run python compute_metrics.py ^
+REM run.py picks the compute device; set HANZIGEN_BACKEND to force one.
+uv run python run.py compute_metrics.py ^
     --generated_img_dir "%GENERATED_IMG_DIR%" ^
     --ground_truth_img_dir "%GROUND_TRUTH_IMG_DIR%" ^
-    --eval_batch_size "%EVAL_BATCH_SIZE%" ^
-    --device "%DEVICE%"
+    --eval_batch_size "%EVAL_BATCH_SIZE%"
 
 exit /b %errorlevel%

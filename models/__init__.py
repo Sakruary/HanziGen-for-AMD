@@ -1,2 +1,2 @@
 from .ldm.ldm import LDM
-from .vqvae.vqvae import VQVAE
+from .vqvae.vqvae import TrainingDivergedError, VQVAE

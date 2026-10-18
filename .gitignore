@@ -6,8 +6,26 @@ dist/
 wheels/
 *.egg-info
 
+# pytest
+.pytest_cache/
+pytest-cache-files-*/
+
 # Virtual environments
 .venv
+.venv-*/
+
+# Local scratch space used for ad-hoc verification runs
+.scratch/
+
+# Tool caches that must live somewhere writable (see configure_miopen_cache).
+# MIOpen compiles convolution kernels on first use; if its cache is unusable it
+# recompiles every kernel on every call.
+.cache/
+.miopen-cache/
+.miopen-db/
+
+# torch.compile inductor cache
+torchinductor_*/
 
 # Font resources
 fonts*/
@@ -19,6 +37,7 @@ data*/
 charsets/jf7000_coverage/
 charsets/unihan_coverage/
 charsets/splits/
+charsets/gbk_coverage/
 
 # Training logs
 checkpoints*/
@@ -26,6 +45,13 @@ runs*/
 
 # Generated samples
 samples*/
+
+# Large downloaded model files (clean-fid downloads this on first use)
+inception-*.pt
+
+# Local debug output
+diag.txt
+*.diag.txt
 
 # System files
 .vscode/

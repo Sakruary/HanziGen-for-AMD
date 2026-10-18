@@ -4,7 +4,7 @@
 TARGET_FONT_PATH="fonts/target_font.ttf"
 TIMESTAMP="auto"
 EVAL_BATCH_SIZE=2
-DEVICE="cuda"
+# Export HANZIGEN_BACKEND to force a compute backend; otherwise run.py auto-detects.
 
 # ==================== DO NOT MODIFY BELOW ====================
 TARGET_FONT_NAME="$(basename "$TARGET_FONT_PATH" | sed -E 's/\.(ttf|otf)$//')"
@@ -21,10 +21,10 @@ fi
 GENERATED_IMG_DIR="${SAMPLE_ROOT}ldm_training_${TIMESTAMP}/eval/gen/"
 GROUND_TRUTH_IMG_DIR="${SAMPLE_ROOT}ldm_training_${TIMESTAMP}/eval/gt/"
 
-uv run python compute_metrics.py \
+# run.py picks the compute device; export HANZIGEN_BACKEND to force one.
+uv run python run.py compute_metrics.py \
     --generated_img_dir "$GENERATED_IMG_DIR" \
     --ground_truth_img_dir "$GROUND_TRUTH_IMG_DIR" \
-    --eval_batch_size "$EVAL_BATCH_SIZE" \
-    --device "$DEVICE"
+    --eval_batch_size "$EVAL_BATCH_SIZE"
 
 exit $?

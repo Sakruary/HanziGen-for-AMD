@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import torch
 import torchvision.transforms as T
 from PIL import Image
 from torch import Tensor
@@ -55,6 +56,9 @@ def convert_tensor_to_pil_images(
 ) -> Image.Image | list[Image.Image]:
     """
     Convert normalized images from [-1,1] to [0,1] and return as PIL format.
+
+    Works for tensors living on any backend: the data is moved to host memory
+    before it is handed to torchvision, which has no accelerator kernels.
     """
     match images.dim():
         case 3:
@@ -71,9 +75,14 @@ def convert_to_pil(
     """
     Convert a normalized tensor to a PIL image.
     """
+    image = image.detach()
+    if image.device.type != "cpu":
+        # Covers CUDA, ROCm/HIP and ZLUDA ("cuda") as well as DirectML
+        # ("privateuseone"); ToPILImage only understands host tensors.
+        image = image.cpu()
     image = image.clamp(-1, 1)
     image = image * 0.5 + 0.5
-    return T.ToPILImage()(image)
+    return T.ToPILImage()(image.to(torch.float32))
 
 
 def save_images(

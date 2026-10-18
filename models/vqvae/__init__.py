@@ -1,1 +1,1 @@
-from .vqvae import VQVAE
+from .vqvae import TrainingDivergedError, VQVAE

@@ -8,7 +8,6 @@ from PIL import Image
 from rich.console import Console
 from rich.table import Table
 from torch import Tensor
-from torch.amp import GradScaler, autocast
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
@@ -17,10 +16,25 @@ from tqdm.rich import tqdm
 
 from configs.vqvae_config import VQVAEModelConfig, VQVAETrainingConfig
 from datasets.loader import Loader
-from utils.hardware.hardware_utils import select_device
-from utils.image.image_utils import convert_tensor_to_pil_images, save_images
+from utils.hardware.hardware_utils import (
+    autocast_context,
+    save_state_dict,
+    scaler_is_enabled,
+    select_device,
+)
+from utils.image.image_utils import convert_tensor_to_pil_images
 
 from .vqvae_encoder_decoder import VQVAEDecoder, VQVAEEncoder, VQVAEQuantizer
+
+
+class TrainingDivergedError(RuntimeError):
+    """
+    Raised when the VQ-VAE has stopped carrying any information about the glyph.
+
+    This is deliberately loud: a collapsed model can keep reporting a low loss
+    for hours (glyph images are mostly white background), so the run must stop
+    rather than silently waste the GPU.
+    """
 
 
 class VQVAE(nn.Module):
@@ -82,34 +96,28 @@ class VQVAE(nn.Module):
         batch: dict[str, Tensor],
         is_training: bool,
         optimizer: Optimizer | None = None,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> dict[str, float]:
         """
         Process a single batch of data.
+
+        ``scaler`` is a :class:`torch.amp.GradScaler` on CUDA-like backends and
+        a no-op fallback elsewhere. Mixed precision itself comes from
+        :func:`~utils.hardware.hardware_utils.autocast_context`, which is a
+        context manager on every backend.
+
+        ``use_amp`` and ``use_scaler`` are kept separate on purpose: bfloat16
+        runs with autocast enabled but with gradient scaling disabled (it needs
+        none), while float16 runs with both enabled. Deriving autocast from
+        ``scaler_is_enabled`` would silently switch autocast off for bf16.
         """
+        use_amp = scaler is not None
+        use_scaler = scaler_is_enabled(scaler)
+
         tgt_imgs = batch["tgt_img"].to(self.device)
         ref_imgs = batch["ref_img"].to(self.device)
 
-        if scaler is not None:
-            with autocast(device_type=self.device.type):
-                tgt_x_recon, tgt_vq_loss = self(tgt_imgs)
-                tgt_recon_loss = self.loss_fn(tgt_x_recon, tgt_imgs)
-
-                ref_x_recon, ref_vq_loss = self(ref_imgs)
-                ref_recon_loss = self.loss_fn(ref_x_recon, ref_imgs)
-
-                recon_loss = (tgt_recon_loss + ref_recon_loss) / 2
-                vq_loss = (tgt_vq_loss + ref_vq_loss) / 2
-                total_loss = recon_loss + vq_loss
-
-            if is_training and optimizer is not None:
-                optimizer.zero_grad()
-                scaler.scale(total_loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
-        else:
+        with autocast_context(self.device, enabled=use_amp):
             tgt_x_recon, tgt_vq_loss = self(tgt_imgs)
             tgt_recon_loss = self.loss_fn(tgt_x_recon, tgt_imgs)
 
@@ -120,8 +128,15 @@ class VQVAE(nn.Module):
             vq_loss = (tgt_vq_loss + ref_vq_loss) / 2
             total_loss = recon_loss + vq_loss
 
-            if is_training and optimizer is not None:
-                optimizer.zero_grad()
+        if is_training and optimizer is not None:
+            optimizer.zero_grad()
+            if use_scaler:
+                scaler.scale(total_loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
                 total_loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
                 optimizer.step()
@@ -141,7 +156,7 @@ class VQVAE(nn.Module):
         optimizer: Optimizer,
         scheduler: LRScheduler,
         training_config: VQVAETrainingConfig,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> None:
         """
         Train the VQ-VAE model and save the best model checkpoint.
@@ -163,6 +178,8 @@ class VQVAE(nn.Module):
             model_save_path.parent.mkdir(parents=True, exist_ok=True)
 
             min_val_loss = float("inf")
+            consecutive_unhealthy = 0
+            health_patience = 2
 
             for epoch in range(training_config.num_epochs):
 
@@ -186,17 +203,49 @@ class VQVAE(nn.Module):
                     learning_rate=current_lr,
                 )
 
+                # Health check BEFORE any checkpoint is written: a collapsed
+                # model must never be stored as the "best" one.
+                healthy, health_summary = self._check_training_health(
+                    val_loader=loader.loader.val,
+                )
+                print(f"🩺 Health: {health_summary}")
+
+                if healthy:
+                    consecutive_unhealthy = 0
+                else:
+                    consecutive_unhealthy += 1
+                    print(
+                        f"❌ The model is no longer reconstructing glyph "
+                        f"structure ({consecutive_unhealthy}/{health_patience} "
+                        "consecutive checks failed)."
+                    )
+                    if consecutive_unhealthy >= health_patience:
+                        raise TrainingDivergedError(
+                            "VQ-VAE training has collapsed: the model is no "
+                            "better than a flat grey image and/or the codebook "
+                            "has collapsed. Stopping instead of wasting more "
+                            f"GPU time. Last health check: {health_summary}"
+                        )
+
                 self._save_epoch_visualization_samples(
                     loader=loader,
                     training_config=training_config,
                     epoch=epoch,
                 )
 
-                # Save the best model checkpoint
-                if val_losses["total"] < min_val_loss:
+                # Save the best model checkpoint, gated on `healthy` on purpose:
+                # a collapsed model can post a lower validation loss than a good
+                # one, and saving it would silently destroy the last usable
+                # weights.
+                if healthy and val_losses["total"] < min_val_loss:
                     min_val_loss = val_losses["total"]
-                    torch.save(self.state_dict(), model_save_path)
+                    save_state_dict(self, model_save_path)
                     print(f"✅ Best model saved (val loss: {min_val_loss:.6f})")
+                elif not healthy:
+                    print(
+                        "⏭️  Checkpoint NOT saved this epoch: the health check "
+                        "failed (see above)."
+                    )
 
                 # Print Metrics
                 self._print_epoch_status(
@@ -211,7 +260,7 @@ class VQVAE(nn.Module):
         self,
         loader: Loader,
         optimizer: Optimizer,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> tuple[dict[str, float], dict[str, float]]:
         """
         Run one epoch of training and validation.
@@ -235,7 +284,7 @@ class VQVAE(nn.Module):
         self,
         train_loader: DataLoader,
         optimizer: Optimizer,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> dict[str, float]:
         """
         Train the model for one epoch.
@@ -262,7 +311,7 @@ class VQVAE(nn.Module):
     def _validate_one_epoch(
         self,
         val_loader: DataLoader,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> dict[str, float]:
         """
         Validate the model for one epoch.
@@ -284,6 +333,65 @@ class VQVAE(nn.Module):
         return {
             loss_type: loss / num_batches for loss_type, loss in epoch_losses.items()
         }
+
+    @torch.no_grad()
+    def _check_training_health(
+        self,
+        val_loader: DataLoader,
+        max_mse_ratio: float = 1.0,
+        max_codebook_share: float = 0.95,
+    ) -> tuple[bool, str]:
+        """
+        Decide whether the model still reconstructs real glyph structure.
+
+        The training loss alone cannot answer this. Glyph images are mostly
+        white background, so a collapsed model that emits near-constant output
+        still scores a small MSE -- which is exactly how a dead run can look
+        healthy for hours. Two signals separate the cases:
+
+        * reconstruction MSE versus the flat-grey baseline (the MSE of always
+          outputting the average pixel). A usable model must beat that baseline;
+        * how much of the codebook the encoder actually uses. VQ-VAE collapse
+          pins this to one or two entries.
+
+        Returns ``(healthy, human readable summary)``.
+        """
+        try:
+            batch = next(iter(val_loader))
+        except StopIteration:
+            return True, "skipped (empty validation loader)"
+
+        images = batch["tgt_img"].to(self.device)
+
+        reconstructed, _ = self(images)
+
+        recon_mse = torch.nn.functional.mse_loss(reconstructed, images).item()
+        baseline = torch.nn.functional.mse_loss(images.mean(), images).item()
+        mse_ratio = recon_mse / baseline if baseline > 0 else float("inf")
+
+        # Count the codebook entries the encoder actually uses.
+        latents = self.encoder(images)
+        flat = latents.permute(0, 2, 3, 1).reshape(-1, latents.shape[1]).float()
+        embeddings = self.vector_quantizer.emb.weight.float()
+        distances = (
+            flat.pow(2).sum(dim=1, keepdim=True)
+            + embeddings.pow(2).sum(dim=1)
+            - 2 * flat @ embeddings.t()
+        )
+        indices = distances.argmin(dim=1)
+        used_codes = int(torch.unique(indices).numel())
+        codebook_size = int(self.vector_quantizer.codebook_size)
+        dominant_share = float(torch.bincount(indices).max()) / float(indices.numel())
+
+        summary = (
+            f"recon MSE {recon_mse:.6f} vs flat-grey {baseline:.6f} "
+            f"(ratio {mse_ratio:.3f}) | codebook {used_codes}/{codebook_size} used, "
+            f"top code {dominant_share:.1%}"
+        )
+
+        healthy = mse_ratio < max_mse_ratio and dominant_share <= max_codebook_share
+
+        return healthy, summary
 
     @torch.no_grad()
     def _save_epoch_visualization_samples(

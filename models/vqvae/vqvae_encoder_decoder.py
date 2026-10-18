@@ -3,6 +3,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
 
+from utils.hardware.hardware_utils import no_autocast
+
 from .vqvae_blocks import VQVAEDownBlock, VQVAEOutBlock, VQVAEUpBlock
 
 
@@ -107,15 +109,25 @@ class VQVAEQuantizer(nn.Module):
 
         flat_x = rearrange(x_perm, "b h w c -> (b h w) c")
 
-        distances = (
-            torch.sum(flat_x**2, dim=1, keepdim=True)
-            + torch.sum(self.emb.weight**2, dim=1)
-            - 2 * torch.matmul(flat_x, self.emb.weight.t())
-        )
+        # The nearest-neighbour lookup is computed in float32 regardless of the
+        # ambient mixed precision setting. Squared distances span a wide range,
+        # so float16 loses too much precision here; keeping both operands in
+        # float32 also avoids the "expected scalar type Half but found Float"
+        # mismatch that otherwise appears when AMP casts one side only.
+        with no_autocast(flat_x.device):
+            flat_x_fp32 = flat_x.float()
+            codebook = self.emb.weight.float()
 
-        encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+            distances = (
+                torch.sum(flat_x_fp32**2, dim=1, keepdim=True)
+                + torch.sum(codebook**2, dim=1)
+                - 2 * torch.matmul(flat_x_fp32, codebook.t())
+            )
 
-        quantized = self.emb(encoding_indices.squeeze(1))
+            encoding_indices = torch.argmin(distances, dim=1).unsqueeze(1)
+
+            quantized = self.emb(encoding_indices.squeeze(1)).to(flat_x.dtype)
+
         quantized = rearrange(quantized, "(b h w) c -> b h w c", b=b, h=h, w=w)
 
         e_latent_loss = F.mse_loss(quantized.detach(), x_perm)

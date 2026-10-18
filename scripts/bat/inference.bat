@@ -4,12 +4,12 @@ setlocal enabledelayedexpansion
 REM ==================== USER CONFIGURATIONS ====================
 set "TARGET_FONT_PATH=fonts/target_font.ttf"
 set "REFERENCE_FONTS_DIR=fonts/jigmo/"
-set "CHARSET_PATH=auto"
+set "CHARSET_PATH=charsets/gbk_coverage/target_font/missing.txt"
 set "BATCH_SIZE=16"
 set "SAMPLE_STEPS=50"
 set "IMG_WIDTH=512"
 set "IMG_HEIGHT=512"
-set "DEVICE=cuda"
+REM Set HANZIGEN_BACKEND to force a compute backend; otherwise run.py auto-detects.
 
 REM ==================== DO NOT MODIFY BELOW ====================
 for %%f in ("%TARGET_FONT_PATH%") do (
@@ -25,7 +25,8 @@ if "%CHARSET_PATH%"=="auto" (
     echo Using manual charset path: %CHARSET_PATH%
 )
 
-uv run python inference.py ^
+REM run.py picks the compute device; set HANZIGEN_BACKEND to force one.
+uv run python run.py inference.py ^
     --target_font_path "%TARGET_FONT_PATH%" ^
     --reference_fonts_dir "%REFERENCE_FONTS_DIR%" ^
     --charset_path "%CHARSET_PATH%" ^
@@ -33,7 +34,6 @@ uv run python inference.py ^
     --batch_size "%BATCH_SIZE%" ^
     --sample_root "%SAMPLE_ROOT%" ^
     --sample_steps "%SAMPLE_STEPS%" ^
-    --img_size "%IMG_WIDTH%" "%IMG_HEIGHT%" ^
-    --device "%DEVICE%"
+    --img_size "%IMG_WIDTH%" "%IMG_HEIGHT%"
 
 exit /b %errorlevel%

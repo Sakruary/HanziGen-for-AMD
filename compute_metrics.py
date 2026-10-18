@@ -3,7 +3,7 @@ import sys
 
 from configs import MetricsConfig
 from utils.argparse.argparse_utils import update_config_from_args
-from utils.hardware.hardware_utils import select_device
+from utils.hardware.hardware_utils import print_backend_banner, select_device
 from utils.metrics import compute_all_metrics
 from utils.validation.project_validator import ProjectValidationError, ProjectValidator
 
@@ -33,7 +33,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        help="Evaluation device (mps, cpu, cuda)",
+        default=None,
+        help=(
+            "Compute device: auto (default), cuda, rocm/hip/amd, zluda, "
+            "directml, mps, cpu (an index such as cuda:0 is also accepted)"
+        ),
     )
 
     return parser.parse_args()
@@ -60,6 +64,7 @@ def main() -> None:
             args=args,
         )
         device = select_device(args.device)
+        print_backend_banner(device=device)
 
         compute_all_metrics(
             generated_img_dir=args.generated_img_dir,

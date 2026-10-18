@@ -1,11 +1,16 @@
 [project]
 name = "hanzigen"
-version = "1.3.0"
-description = "HanziGen"
+version = "1.5.0"
+description = "HanziGen - Chinese font completion (NVIDIA CUDA / AMD ROCm / ZLUDA / DirectML / CPU)"
 readme = "README.md"
-requires-python = ">=3.13"
+# 3.12 is the floor because the AMD paths lag behind: torch-directml publishes
+# wheels only up to CPython 3.12, while ROCm builds track the newest stable.
+requires-python = ">=3.12"
 dependencies = [
     # torch
+    # These pins carry no local version tag, so the actual build (CUDA, ROCm,
+    # DirectML or CPU) is decided by whichever index you install from. See
+    # docs/AMD_SETUP.md - "AMD 顯示卡安裝指南" and docs/NVIDIA_SETUP.md.
     "torch==2.7.1",
     "torchvision==0.22.1",
     "torchaudio==2.7.1",
@@ -17,6 +22,10 @@ dependencies = [
     "rich==14.0.0",
     "tqdm==4.67.1",
     "tensorboard==2.20.0",
+    # tensorboard's CLI entry point (tensorboard/default.py) does a bare
+    # "import pkg_resources" without declaring setuptools, so uv virtualenvs
+    # (which do not ship setuptools) fail to launch the `tensorboard` command.
+    "setuptools>=70",
     # others
     "einops==0.8.1",
     "scipy==1.16.2",
@@ -25,7 +34,21 @@ dependencies = [
     "potracer==0.0.4"
 ]
 
+# There is deliberately no optional-dependencies group for AMD here.
+#
+# torch-directml pins its own, much older torch/torchvision pair
+# (torchvision==0.19.1), which cannot be reconciled with the torch 2.7.1 /
+# torchvision 0.22.1 pair this project needs. Declaring it as an extra makes
+# the entire dependency graph unsolvable, so even `uv lock` fails.
+#
+# Install it the mutually exclusive way instead, in a dedicated environment:
+#   uv pip install -r constraints/amd-directml.txt
+# See docs/AMD_SETUP.md, route C.
+
 [tool.uv.sources]
+# The default environment is the NVIDIA CUDA 11.8 build, which preserves the
+# original behaviour of this project. AMD users override this at install time
+# with one of the constraints files in `constraints/`; see docs/AMD_SETUP.md.
 torch = { index = "pytorch-cu118" }
 torchvision = { index = "pytorch-cu118" }
 torchaudio = { index = "pytorch-cu118" }
@@ -34,3 +57,24 @@ torchaudio = { index = "pytorch-cu118" }
 name = "pytorch-cu118"
 url = "https://download.pytorch.org/whl/cu118"
 explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-rocm"
+# AMD ROCm wheels. Replace the tag with the ROCm release that matches your
+# driver; check https://download.pytorch.org/whl/rocm6.3 for what exists.
+url = "https://download.pytorch.org/whl/rocm6.3"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+# DirectML is distributed on PyPI; keep PyPI as the last resort index.
+[[tool.uv.index]]
+name = "pypi"
+url = "https://pypi.org/simple"
+default = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

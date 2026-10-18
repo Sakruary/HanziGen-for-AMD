@@ -7,7 +7,6 @@ from PIL import Image
 from rich.console import Console
 from rich.table import Table
 from torch import Tensor
-from torch.amp import GradScaler, autocast
 from torch.optim import Optimizer
 from torch.optim.lr_scheduler import LRScheduler
 from torch.utils.data import DataLoader
@@ -22,7 +21,13 @@ from datasets.loader import Loader
 from models.unet.unet import UNet
 from models.vqvae.vqvae import VQVAE
 from utils.charset.charset_utils import read_charset_from_file
-from utils.hardware.hardware_utils import select_device
+from utils.hardware.hardware_utils import (
+    autocast_context,
+    load_state_dict,
+    save_state_dict,
+    scaler_is_enabled,
+    select_device,
+)
 from utils.image.image_generator import GlyphImageGenerator
 from utils.image.image_utils import convert_tensor_to_pil_images, save_images
 from utils.metrics.lpips import compute_lpips_from_directories
@@ -116,11 +121,7 @@ class LDM(nn.Module):
             )
 
         print(f"📂 Loading pretrained VQ-VAE model checkpoint: {pretrained_vqvae_path}")
-        state_dict = torch.load(
-            pretrained_vqvae_path,
-            map_location=self.device,
-            weights_only=True,
-        )
+        state_dict = load_state_dict(pretrained_vqvae_path)
         self.vqvae.load_state_dict(state_dict)
 
     # ===== Core Operations =====
@@ -144,35 +145,26 @@ class LDM(nn.Module):
         batch: dict[str, Tensor],
         is_training: bool,
         optimizer: Optimizer | None = None,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> float:
         """
         Process a single batch of data.
+
+        ``scaler`` is a :class:`torch.amp.GradScaler` on CUDA-like backends and
+        a no-op fallback elsewhere; mixed precision is provided by
+        :func:`~utils.hardware.hardware_utils.autocast_context`.
+
+        ``use_amp`` and ``use_scaler`` are kept separate: bfloat16 runs with
+        autocast on but gradient scaling off, so autocast must not be derived
+        from ``scaler_is_enabled``.
         """
+        use_amp = scaler is not None
+        use_scaler = scaler_is_enabled(scaler)
+
         tgt_imgs = batch["tgt_img"].to(self.device)
         ref_imgs = batch["ref_img"].to(self.device)
 
-        if scaler is not None:
-            with autocast(device_type=self.device.type):
-                batch_size = tgt_imgs.shape[0]
-                t = self.scheduler.sample_timesteps(batch_size)
-
-                tgt_latents = self._encode_to_latent(tgt_imgs)
-                x_t, noise = self.scheduler.add_noise(tgt_latents, t)
-                ref_latents = self._encode_to_latent(ref_imgs)
-
-                noise_pred = self(x_t, ref_latents, t)
-                loss = self.loss_fn(noise_pred, noise)
-
-            if is_training and optimizer is not None:
-                optimizer.zero_grad()
-                scaler.scale(loss).backward()
-                scaler.unscale_(optimizer)
-                torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
-                scaler.step(optimizer)
-                scaler.update()
-
-        else:
+        with autocast_context(self.device, enabled=use_amp):
             batch_size = tgt_imgs.shape[0]
             t = self.scheduler.sample_timesteps(batch_size)
 
@@ -183,8 +175,15 @@ class LDM(nn.Module):
             noise_pred = self(x_t, ref_latents, t)
             loss = self.loss_fn(noise_pred, noise)
 
-            if is_training and optimizer is not None:
-                optimizer.zero_grad()
+        if is_training and optimizer is not None:
+            optimizer.zero_grad()
+            if use_scaler:
+                scaler.scale(loss).backward()
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+            else:
                 loss.backward()
                 torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
                 optimizer.step()
@@ -214,7 +213,7 @@ class LDM(nn.Module):
         scheduler: LRScheduler,
         training_config: LDMTrainingConfig,
         resume: bool = False,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> None:
         """
         Train the LDM and save the best model checkpoint.
@@ -296,7 +295,7 @@ class LDM(nn.Module):
                 ):
 
                     min_lpips_score = scores["lpips"]
-                    torch.save(self.state_dict(), model_save_path)
+                    save_state_dict(self, model_save_path)
                     print(f"✅ Best model saved. (LPIPS score: {min_lpips_score:.6f})")
 
                 # Print Metrics
@@ -312,7 +311,7 @@ class LDM(nn.Module):
         self,
         loader: Loader,
         optimizer: Optimizer,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> tuple[float, float]:
         """
         Run one epoch of training and validation.
@@ -336,7 +335,7 @@ class LDM(nn.Module):
         self,
         train_loader: DataLoader,
         optimizer: Optimizer,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> float:
         """
         Train the model for one epoch.
@@ -359,7 +358,7 @@ class LDM(nn.Module):
     def _validate_one_epoch(
         self,
         val_loader: DataLoader,
-        scaler: GradScaler | None = None,
+        scaler=None,
     ) -> float:
         """
         Validate the model for one epoch.

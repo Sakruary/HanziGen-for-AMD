@@ -1,0 +1,16 @@
+# ---------------------------------------------------------------------------
+# CPU-only backend.
+#
+# Works everywhere and needs no GPU driver. Use it for smoke tests and for the
+# data-preparation stages; training a real font on CPU is impractical.
+#
+# Usage:
+#   uv pip install -r constraints/cpu.txt
+#   uv run python check_hardware.py --device cpu
+# ---------------------------------------------------------------------------
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+
+torch==2.7.1
+torchvision==0.22.1
+torchaudio==2.7.1

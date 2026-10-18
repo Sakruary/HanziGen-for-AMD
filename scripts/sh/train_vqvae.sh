@@ -7,11 +7,18 @@ VAL_SPLIT_RATIO=0.2
 SPLIT_RANDOM_SEED=2025
 BATCH_SIZE=8
 LEARNING_RATE=1e-3
-NUM_EPOCHS=100
+NUM_EPOCHS=500
 IMG_SAVE_INTERVAL=5
-DEVICE="cuda"
 RESUME=false
 USE_AMP=false
+
+# ==================== OPTIONAL: FORCE A BACKEND ====================
+# Export a backend to skip auto-detection (run.py reads this):
+#   export HANZIGEN_BACKEND=cuda       # NVIDIA
+#   export HANZIGEN_BACKEND=rocm       # AMD, ROCm / HIP
+#   export HANZIGEN_BACKEND=zluda      # AMD, ZLUDA on Windows
+#   export HANZIGEN_BACKEND=directml   # AMD / Intel on Windows
+#   export HANZIGEN_BACKEND=cpu        # no GPU
 
 # ==================== DO NOT MODIFY BELOW ====================
 TARGET_FONT_NAME="$(basename "$TARGET_FONT_PATH" | sed -E 's/\.(ttf|otf)$//')"
@@ -19,7 +26,8 @@ MODEL_SAVE_PATH="checkpoints/vqvae_${TARGET_FONT_NAME}.pth"
 TENSORBOARD_LOG_DIR="runs/VQVAE_${TARGET_FONT_NAME}"
 SAMPLE_ROOT="samples_${TARGET_FONT_NAME}/"
 
-uv run python train_vqvae.py \
+# run.py resolves the backend and maps it to the right --device for you.
+uv run python run.py train_vqvae.py \
     --split_ratios "$TRAIN_SPLIT_RATIO" "$VAL_SPLIT_RATIO" \
     --split_random_seed "$SPLIT_RANDOM_SEED" \
     --batch_size "$BATCH_SIZE" \
@@ -29,7 +37,6 @@ uv run python train_vqvae.py \
     --tensorboard_log_dir "$TENSORBOARD_LOG_DIR" \
     --sample_root "$SAMPLE_ROOT" \
     --img_save_interval "$IMG_SAVE_INTERVAL" \
-    --device "$DEVICE" \
     --resume "$RESUME" \
     --use_amp "$USE_AMP"
 

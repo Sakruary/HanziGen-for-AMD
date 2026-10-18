@@ -4,7 +4,6 @@ from pathlib import Path
 
 import torch
 import torch.optim as optim
-from torch.amp import GradScaler
 from torch.optim.lr_scheduler import CosineAnnealingLR
 
 from configs import (
@@ -16,7 +15,15 @@ from configs import (
 from datasets.loader import Loader
 from models import LDM
 from utils.argparse.argparse_utils import update_config_from_args
-from utils.hardware.hardware_utils import print_model_params, select_device
+from utils.hardware.hardware_utils import (
+    enable_fast_math,
+    load_state_dict,
+    make_grad_scaler,
+    print_backend_banner,
+    print_model_params,
+    resolve_amp_settings,
+    select_device,
+)
 from utils.validation.project_validator import ProjectValidationError, ProjectValidator
 
 
@@ -96,7 +103,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        help="Training device (mps, cpu, cuda)",
+        default=None,
+        help=(
+            "Compute device: auto (default), cuda, rocm/hip/amd, zluda, "
+            "directml, mps, cpu (an index such as cuda:0 is also accepted)"
+        ),
     )
     parser.add_argument(
         "--resume",
@@ -108,7 +119,10 @@ def parse_args() -> argparse.Namespace:
         "--use_amp",
         type=str,
         default="false",
-        help="Use Automatic Mixed Precision",
+        help=(
+            "Use Automatic Mixed Precision (true/false). Silently falls back to "
+            "float32 on backends without GradScaler support (for example DirectML)"
+        ),
     )
 
     return parser.parse_args()
@@ -133,11 +147,7 @@ def load_ldm_checkpoint(
         )
 
     print(f"📁 Loading LDM model checkpoint: {checkpoint_path}")
-    state_dict = torch.load(
-        checkpoint,
-        map_location=device,
-        weights_only=True,
-    )
+    state_dict = load_state_dict(checkpoint)
     ldm.load_state_dict(state_dict)
 
 
@@ -153,6 +163,8 @@ def train_ldm(
     """
     Train LDM model.
     """
+    enable_fast_math(device)
+
     loader = Loader.from_dataset_config(
         dataset_config=dataset_config,
         device=device,
@@ -175,7 +187,7 @@ def train_ldm(
         eta_min=training_config.min_learning_rate,
     )
 
-    scaler = GradScaler(device=device) if use_amp else None
+    scaler = make_grad_scaler(device=device, enabled=use_amp) if use_amp else None
 
     if resume:
         load_ldm_checkpoint(
@@ -205,7 +217,12 @@ def main() -> None:
     try:
         args = parse_args()
         resume = args.resume.lower() == "true"
-        use_amp = args.use_amp.lower() == "true"
+        use_amp_requested = args.use_amp.lower() == "true"
+        device = select_device(args.device)
+        use_amp, amp_warning = resolve_amp_settings(device, use_amp_requested)
+        if amp_warning:
+            print(amp_warning)
+        print_backend_banner(device=device, use_amp=use_amp)
 
         if resume:
             ProjectValidator.validate_checkpoint_file(
@@ -234,7 +251,6 @@ def main() -> None:
             converting_config=LDMTrainingConfig(),
             args=args,
         )
-        device = select_device(args.device)
 
         train_ldm(
             dataset_config=dataset_config,

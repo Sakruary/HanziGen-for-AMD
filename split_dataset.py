@@ -38,7 +38,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        help="Training device (mps, cpu, cuda)",
+        default=None,
+        help=(
+            "Compute device: auto (default), cuda, rocm/hip/amd, zluda, "
+            "directml, mps, cpu (an index such as cuda:0 is also accepted)"
+        ),
     )
 
     return parser.parse_args()
