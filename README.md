@@ -4,7 +4,7 @@
 
 # 【字生字 · HanziGen】 for AMD
 
-### 汉字字体生成与补全系统 · AMD 显卡适配版
+## 汉字字体生成与补全系统 · AMD 显卡适配版
 
 </div>
 
@@ -41,63 +41,6 @@
 > - 本项目非通用生成模型，每种目标字体均需独立完成训练
 > - 本项目不提供字体文件，请自行准备目标字体与参考字体
 > - 本项目不提供权重文件，请依照使用说明自行训练该模型
-
----
-
-## ⚡ AMD 快速开始
-
-> 完整步骤与疑难解答见 [AMD 显卡安装指南](./docs/AMD_SETUP.md)；以下是最短路径（以 Windows + ROCm 为例）。
-
-```powershell
-git clone https://github.com/Sakruary/HanziGen-for-AMD.git
-cd HanziGen-for-AMD
-uv venv --python 3.12 .venv
-
-$PY  = ".venv\Scripts\python.exe"
-$IDX = "https://rocm.nightlies.amd.com/v2/gfx120X-all/"
-
-# 1) torch 的运行时依赖
-uv pip install --python $PY filelock fsspec jinja2 networkx sympy numpy pillow `
-  typing-extensions setuptools --index-url https://pypi.org/simple
-
-# 2) ROCm 三件套（精确锁版本 + --no-deps）
-uv pip install --python $PY --no-deps --index-url $IDX `
-  "torch==2.10.0+rocm7.13.0a20260511" `
-  "torchvision==0.25.0+rocm7.13.0a20260511" `
-  "torchaudio==2.10.0+rocm7.13.0a20260511"
-
-# 3) ROCm SDK 运行时（缺了 import torch 会 ModuleNotFoundError: rocm_sdk）
-uv pip install --python $PY --no-deps --index-url $IDX `
-  "rocm-sdk-core==7.13.0a20260511" `
-  "rocm-sdk-libraries-gfx120x-all==7.13.0a20260511" `
-  "rocm==7.13.0a20260511"
-
-# 4) 项目应用依赖
-uv pip install --python $PY `
-  "scikit-image==0.25.2" "lpips==0.1.4" "clean-fid==0.1.25" `
-  "rich==14.0.0" "tqdm==4.67.1" "tensorboard==2.20.0" "setuptools>=70" `
-  "einops==0.8.1" "scipy==1.16.2" "matplotlib==3.10.1" `
-  "fonttools==4.57.0" "potracer==0.0.4"
-
-# 5) 防止 uv run 把 ROCm torch 重装成 CUDA 版
-setx UV_NO_SYNC "1"
-```
-
-验证：
-
-```powershell
-& $PY -c "import torch; print(torch.version.hip, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
-# 期望：7.13.26176 True AMD Radeon RX 9070 XT
-```
-
-之后即可用 `scripts\bat\*.bat` 直接跑训练与推理。
-
-> [!TIP]
->
-> - 首次训练会花约 1 分钟编译 MIOpen 卷积 kernel，属正常现象。
-> - 数值不稳时设 `$env:HANZIGEN_AMP_DTYPE = "bf16"` 改用 bfloat16。
-> - 训练后可用 `python scripts/inspect_checkpoint.py` 检查权重是否健康。
-> - **不要手动跑 `uv sync`**：`uv.lock` 锁的是 CUDA 版 torch，会覆盖掉 ROCm 版。
 
 ---
 
@@ -141,7 +84,7 @@ $$
 
 ## 🚀 使用说明
 
-### 1. 建置环境 ⚙️
+### 1. 环境部署 ⚙️
 
 此步骤将建立本项目所需的 Python 环境并安装相关软件包。
 
@@ -204,29 +147,66 @@ uv sync
 > | --- | --- | --- |
 > | `.venv` | **ROCm / HIP**（torch 2.10.0+rocm7.13.0a20260511） | `uv run` 与 `.bat` 的默认环境 |
 > | `.venv-amd`（可选） | DirectML（torch 2.4.1 + torch-directml） | 备援，不需 ROCm |
->
-> ```powershell
-> # ROCm（建议）
-> uv venv --python 3.12 .venv
-> # 接著依 docs/AMD_SETUP.md 第 2-2 节或本页“AMD 快速开始”安装
-> setx UV_NO_SYNC "1"   # 防止 uv run 把 ROCm torch 重装成 CUDA 版
->
-> # DirectML（可选，较简单但较慢）
-> uv venv --python 3.12 .venv-amd
-> uv pip install --python .venv-amd\Scripts\python.exe -r constraints/amd-directml.txt
-> ```
->
-> ⚠️ `uv run` 只绑定 `.venv`。想切换默认后端，就是把 `.venv` 建成对应后端。
+
+ ```powershell
+ # ROCm（建议）
+ uv venv --python 3.12 .venv
+ # 接著依 docs/AMD_SETUP.md 第 2-2 节或本页“AMD 快速开始”安装
+uv venv --python 3.12 .venv
+
+$PY  = ".venv\Scripts\python.exe"
+$IDX = "https://rocm.nightlies.amd.com/v2/gfx120X-all/"
+
+# 1) torch 的运行时依赖
+uv pip install --python $PY filelock fsspec jinja2 networkx sympy numpy pillow `
+  typing-extensions setuptools --index-url https://pypi.org/simple
+
+# 2) ROCm 三件套（精确锁版本 + --no-deps）
+uv pip install --python $PY --no-deps --index-url $IDX `
+  "torch==2.10.0+rocm7.13.0a20260511" `
+  "torchvision==0.25.0+rocm7.13.0a20260511" `
+  "torchaudio==2.10.0+rocm7.13.0a20260511"
+
+# 3) ROCm SDK 运行时（缺了 import torch 会 ModuleNotFoundError: rocm_sdk）
+uv pip install --python $PY --no-deps --index-url $IDX `
+  "rocm-sdk-core==7.13.0a20260511" `
+  "rocm-sdk-libraries-gfx120x-all==7.13.0a20260511" `
+  "rocm==7.13.0a20260511"
+
+# 4) 项目应用依赖
+uv pip install --python $PY `
+  "scikit-image==0.25.2" "lpips==0.1.4" "clean-fid==0.1.25" `
+  "rich==14.0.0" "tqdm==4.67.1" "tensorboard==2.20.0" "setuptools>=70" `
+  "einops==0.8.1" "scipy==1.16.2" "matplotlib==3.10.1" `
+  "fonttools==4.57.0" "potracer==0.0.4"
+
+# 5) 防止 uv run 把 ROCm torch 重装成 CUDA 版
+setx UV_NO_SYNC "1"
+```
+
+验证：
+
+```powershell
+& $PY -c "import torch; print(torch.version.hip, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
+# 期望：7.13.26176 True AMD Radeon RX 9070 XT
+```
+
+之后即可用 `scripts\bat\*.bat` 直接跑训练与推理。
 
 > [!TIP]
 >
-> 环境建置完成后，建议先执行硬件诊断脚本确认后端是否正确：
->
-> ```bash
-> uv run python check_hardware.py --benchmark
-> ```
->
-> 脚本会列出检测到的后端、实际执行本项目所需的各项算子，并提供性能基准。
+> - 首次训练会花约 1 分钟编译 MIOpen 卷积 kernel，属正常现象。
+> - 数值不稳时设 `$env:HANZIGEN_AMP_DTYPE = "bf16"` 改用 bfloat16。
+> - 训练后可用 `python scripts/inspect_checkpoint.py` 检查权重是否健康。
+> - **不要手动跑 `uv sync`**：`uv.lock` 锁的是 CUDA 版 torch，会覆盖掉 ROCm 版。
+
+```powershell
+> # DirectML（可选，较简单但较慢）
+> uv venv --python 3.12 .venv-amd
+> uv pip install --python .venv-amd\Scripts\python.exe -r constraints/amd-directml.txt
+ ```
+
+⚠️ `uv run` 只绑定 `.venv`。想切换默认后端，就是把 `.venv` 建成对应后端。
 
 #### 1-4 项目结构
 
