@@ -101,19 +101,11 @@ git clone https://github.com/Sakruary/HanziGen-for-AMD.git
 cd HanziGen-for-AMD
 ```
 
-#### 1-2 建立 uv 环境
+#### 1-2 安装 uv 环境
 
 > [!NOTE]
 >
 > - 若尚未安装 uv，请参考 [uv 官方网站](https://docs.astral.sh/uv/#installation) 安装对应的平台版本
-
-```bash
-uv sync
-```
-
-> [!NOTE]
->
-> - 本项目默认安装 CUDA 11.8 版本的 PyTorch。若需调整为 CPU 或其他 CUDA 版本，请依 [uv 官方文档](https://docs.astral.sh/uv/guides/integration/pytorch/#using-a-pytorch-index) 修改 [`pyproject.toml`](./pyproject.toml) 的索引设置，并执行 `uv sync` 同步环境。
 
 #### 1-3 选择运算后端
 
@@ -148,10 +140,9 @@ uv sync
 > | `.venv` | **ROCm / HIP**（torch 2.10.0+rocm7.13.0a20260511） | `uv run` 与 `.bat` 的默认环境 |
 > | `.venv-amd`（可选） | DirectML（torch 2.4.1 + torch-directml） | 备援，不需 ROCm |
 
- ```powershell
- # ROCm（建议）
- uv venv --python 3.12 .venv
- # 接著依 docs/AMD_SETUP.md 第 2-2 节或本页“AMD 快速开始”安装
+在PowerShell执行命令：
+```powershell
+# ROCm（建议）
 uv venv --python 3.12 .venv
 
 $PY  = ".venv\Scripts\python.exe"
@@ -185,13 +176,10 @@ setx UV_NO_SYNC "1"
 ```
 
 验证：
-
 ```powershell
 & $PY -c "import torch; print(torch.version.hip, torch.cuda.is_available(), torch.cuda.get_device_name(0))"
 # 期望：7.13.26176 True AMD Radeon RX 9070 XT
 ```
-
-之后即可用 `scripts\bat\*.bat` 直接跑训练与推理。
 
 > [!TIP]
 >
@@ -199,14 +187,6 @@ setx UV_NO_SYNC "1"
 > - 数值不稳时设 `$env:HANZIGEN_AMP_DTYPE = "bf16"` 改用 bfloat16。
 > - 训练后可用 `python scripts/inspect_checkpoint.py` 检查权重是否健康。
 > - **不要手动跑 `uv sync`**：`uv.lock` 锁的是 CUDA 版 torch，会覆盖掉 ROCm 版。
-
-```powershell
-> # DirectML（可选，较简单但较慢）
-> uv venv --python 3.12 .venv-amd
-> uv pip install --python .venv-amd\Scripts\python.exe -r constraints/amd-directml.txt
- ```
-
-⚠️ `uv run` 只绑定 `.venv`。想切换默认后端，就是把 `.venv` 建成对应后端。
 
 #### 1-4 项目结构
 
